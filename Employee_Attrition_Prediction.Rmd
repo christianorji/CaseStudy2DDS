@@ -1,0 +1,426 @@
+---
+title: "Attrition Prediction"
+author: "Christian Orji"
+date: "2023-04-01"
+output: html_document
+---
+
+```{r}
+library(tidyverse)
+library(ggplot2)
+library(lattice)
+library(caret)
+library(glmnet)
+library(naivebayes)
+library(e1071)
+library(scales)
+library(caret)
+library(dplyr)
+```
+
+# load the data and get the dimensions
+
+```{r}
+talent_data <- read.table(file = "CaseStudy2-data.txt", sep=",", header = T, na.strings = c("NA", "", " "), stringsAsFactors = T)
+
+No_Attrition <- read.table(file = "No_Attrition.txt", sep=",", header = T, na.strings = c("NA", "", " "), stringsAsFactors = T)
+
+No_MonthlyIncome <- read.csv(file = "No_MonthlyIncome.csv", sep=",", header = T, na.strings = c("NA", "", " "), stringsAsFactors = T)
+
+dim(talent_data)
+```
+
+Data preparation: We've already loaded the dataset into R. Now, let's inspect the data and clean it.
+
+```{r}
+# Check for missing values
+sum(is.na(talent_data))
+
+# Check for duplicates
+sum(duplicated(talent_data))
+
+# Inspect data types
+str(talent_data)
+
+```
+
+# Exploratory data analysis (EDA): Perform summary statistics and visualizations to understand the data distribution and relationships.
+
+```{r}
+# Summary statistics
+summary(talent_data)
+```
+
+Based on the dataset provided, there are 870 observations, with 34 features and the target variable 'Attrition'. The dataset contains various information about employees such as demographic details (Age, Gender, MaritalStatus), job-related details (BusinessTravel, DailyRate, Department, DistanceFromHome, JobRole, etc.), and work experience (TotalWorkingYears, YearsAtCompany, YearsInCurrentRole, YearsWithCurrManager).
+
+
+
+# Feature engineering: Based on the EDA results, we do not need to create or transform features.
+
+```{r}
+# Load required libraries
+library(ggplot2)
+library(scales)
+
+# Attrition by department
+department_plot <- ggplot(talent_data, aes(x = Department, fill = Attrition)) + 
+  geom_bar(position = "dodge") + 
+  theme_minimal() +
+  ylab("Percentage") +
+  scale_fill_discrete(labels = c("No (0)", "Yes (1)")) +
+  scale_y_continuous(labels = percent)
+
+print(department_plot)
+
+# Attrition by job role
+jobrole_plot <- ggplot(talent_data, aes(x = JobRole, fill = Attrition)) + 
+  geom_bar(position = "dodge") + 
+  theme_minimal() + 
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  ylab("Percentage") +
+  scale_fill_discrete(labels = c("No (0)", "Yes (1)")) +
+  scale_y_continuous(labels = percent)
+
+print(jobrole_plot)
+
+# Attrition by business travel
+business_travel_plot <- ggplot(talent_data, aes(x = BusinessTravel, fill = Attrition)) + 
+  geom_bar(position = "dodge") + 
+  theme_minimal() +
+  ylab("Percentage") +
+  scale_fill_discrete(labels = c("No (0)", "Yes (1)")) +
+  scale_y_continuous(labels = percent)
+
+print(business_travel_plot)
+
+
+# Age distribution by attrition
+age_plot <- ggplot(talent_data, aes(x = Age, fill = Attrition)) + 
+  geom_density(alpha = 0.5) + 
+  theme_minimal()
+print(age_plot)
+
+# Attrition by DailyRate
+dailyrate_plot <- ggplot(talent_data, aes(x = DailyRate, fill = Attrition)) + 
+  geom_density(alpha = 0.5) + 
+  theme_minimal()
+print(dailyrate_plot)
+
+```
+
+
+```{r}
+# Visually showing what job role has the highest average hourly rate. 
+talent_data %>% group_by(JobRole) %>% summarise(meanHourlyRate = mean(HourlyRate)) %>% ggplot(aes(x = reorder(JobRole, -meanHourlyRate), y = meanHourlyRate)) + geom_col(fill = "red") + ggtitle("Average Hourly Rate by Job Role") + ylab("Average Hourly Rate") + xlab("Job Role") + theme(axis.text.x = element_text(angle = 90))
+```
+
+# Managers have the highest hourly rate.
+
+
+```{r}
+# Visually showing what department has the highest average hourly rate. 
+talent_data %>% group_by(Department) %>% summarise(meanHourlyRate = mean(HourlyRate)) %>% ggplot(aes(x = reorder(Department, -meanHourlyRate), y = meanHourlyRate)) + geom_col(fill = "red") + ggtitle("Average Hourly Rate by Department") + ylab("Average Hourly Rate") + xlab("Department") + theme(axis.text.x = element_text(angle = 90))
+```
+
+# Research and Development has the highest hourly rate.
+
+
+```{r}
+# Visually showing what job role has the highest average job satisfaction.
+talent_data %>% group_by(JobRole) %>% summarise(meanJobSat = mean(JobSatisfaction)) %>% ggplot(aes(x = reorder(JobRole, -meanJobSat), y = meanJobSat)) + geom_col(fill = "red") + ggtitle("Average Job Satisfacation by Job Role") + ylab("Average Job Satisfacation") + xlab("Job Role") + theme(axis.text.x = element_text(angle = 90)) 
+```
+
+# Health Care Representatives have the highest average job satisfaction. 
+
+```{r}
+# Visually showing what job role has the highest average relationship satisfaction with boss. 
+talent_data %>% group_by(JobRole) %>% summarise(meanRelSat = mean(RelationshipSatisfaction)) %>% ggplot(aes(x = reorder(JobRole, -meanRelSat), y = meanRelSat)) + geom_col(fill = "red") + ggtitle("Average Relationship Satisfacation WIth Boss by Job Role") + ylab("Average Relationship Satisfacation") + xlab("Job Role") + theme(axis.text.x = element_text(angle = 90)) 
+```
+# Human Resources has the highest average relationship satisfaction with their boss. 
+
+
+```{r}
+# Visually showing what job role has the highest average number of years at the company. 
+talent_data %>% group_by(JobRole) %>% summarise(meanYrs = mean(YearsAtCompany)) %>% ggplot(aes(x = reorder(JobRole, -meanYrs), y = meanYrs)) + geom_col(fill = "red") + ggtitle("Average Years at Company by Job Role") + ylab("Average Number of Years at Company") + xlab("Job Role") + theme(axis.text.x = element_text(angle = 90)) 
+```
+
+# Managers have the highest average number of years at the company. 
+
+
+# Creating a separate data frame to create percentage of Attrition and Retention by Job Role variables
+```{r}
+Attrition <- talent_data %>%
+  group_by(JobRole) %>%
+  summarise(countTot = n())
+
+Attrition2 <- talent_data %>%
+  filter(Attrition == "Yes") %>%
+  group_by(JobRole) %>%
+  summarise(NumAttrition = n())
+
+Attrition3 <- talent_data %>%
+  filter(Attrition == "No") %>%
+  group_by(JobRole) %>%
+  summarise(NumRetention = n())
+
+AttritionRetention <- merge(Attrition, Attrition2, by = "JobRole")
+AttritionRetention2 <- merge(AttritionRetention, Attrition3, by = "JobRole")
+AttritionRetention2$PercentAttrition <- (AttritionRetention2$NumAttrition/AttritionRetention2$countTot)*100
+AttritionRetention2$PercentRetention <- (AttritionRetention2$NumRetention/AttritionRetention2$countTot)*100
+AttritionRetention2
+
+# Visually showing the percent Attrition by job role in descending order. 
+AttritionRetention2 %>%
+  ggplot(aes(x = reorder(JobRole, -PercentAttrition), y = PercentAttrition)) +
+  geom_col(fill = "red") +
+  ggtitle("Percentage of Attrition by Job Role") +
+  ylab("Percent Attrition") +
+  xlab("Job Role") +
+  theme(axis.text.x = element_text(angle = 90))
+
+# Visually showing the percent Retention by Job Role in descending order. 
+AttritionRetention2 %>%
+  ggplot(aes(x = reorder(JobRole, -PercentRetention), y = PercentRetention)) +
+  geom_col(fill = "red") +
+  ggtitle("Percentage of Retention by Job Role") +
+  ylab("Percent Retention") +
+  xlab("Job Role") +
+  theme(axis.text.x = element_text(angle = 90))
+
+```
+
+Sales Representative has the highest percentage of Attrition by job Role
+Research Director and Manufacturing Director has the highest percentage of Retention by job Role
+
+
+
+# Model building: Split the dataset, create models, and evaluate their performance.
+
+```{r}
+# Encode Attrition as binary (0 = No, 1 = Yes)
+talent_data$Attrition <- as.integer(talent_data$Attrition == "Yes")
+
+# Split the dataset into training and testing sets
+library(caret)
+set.seed(42)
+trainIndex <- createDataPartition(talent_data$Attrition, p = 0.8, list = FALSE, times = 1)
+train_set <- talent_data[trainIndex,]
+test_set <- talent_data[-trainIndex,]
+
+# Create a logistic regression model
+model <- glm(Attrition ~ Age + Department + MonthlyIncome + JobRole + JobSatisfaction, data = train_set, family = "binomial")
+
+# Make predictions
+predictions <- predict(model, test_set, type = "response")
+predicted_classes <- ifelse(predictions > 0.5, 1, 0)
+
+# Evaluate model performance
+confusionMatrix(factor(predicted_classes), factor(test_set$Attrition))
+
+```
+
+# Adjusting the Sensitivity using the up sampling
+
+```{r}
+yes = which(talent_data$Attrition=="1")
+no= which(talent_data$Attrition=="0")
+length(yes)
+length(no)
+yes.upsampling= sample(yes,length(no), replace = TRUE)
+length(yes.upsampling)
+talent_data.up = talent_data[c(yes.upsampling,no),]
+histogram(talent_data.up$Attrition)
+# Encode Attrition as binary (0 = No, 1 = Yes)
+#talent_data$Attrition <- as.integer(talent_data$Attrition == "Yes")
+
+# Split the dataset into training and testing sets
+library(caret)
+set.seed(42)
+trainIndex <- createDataPartition(talent_data.up$Attrition, p = 0.8, list = FALSE, times = 1)
+train_set <- talent_data.up[trainIndex,]
+test_set <- talent_data.up[-trainIndex,]
+
+# Create a logistic regression model
+model2 <- naiveBayes(Attrition ~ Age + Department + MonthlyIncome + JobRole + JobSatisfaction, data = train_set, laplace=1)
+
+# Make predictions
+predictions <- predict(model2, test_set, type = "class")
+predicted_classes <- ifelse(predictions > 0.5, 1, 0)
+
+# Evaluate model performance
+confusionMatrix(predictions, factor(test_set$Attrition))
+```
+
+In this analysis, the goal is to adjust the sensitivity of the model by using up-sampling. First, the "Yes" and "No" instances of attrition are identified, and up-sampling is performed to equalize their numbers. After that, the dataset is split into training and testing sets with 80% of the data for training and the remaining 20% for testing.
+
+A Naive Bayes model is created using the training set and includes the variables Age, Department, MonthlyIncome, JobRole, and JobSatisfaction. Predictions are made on the test set, and the model's performance is evaluated using a confusion matrix. The accuracy of the model is 67.81%, with a 95% confidence interval of (62.12%, 73.13%). The No Information Rate (NIR) is 0.5, and the p-value indicates that the model's accuracy is significantly better than the NIR. The kappa statistic, which measures the agreement between predictions and true values, is 0.3562.
+
+Mcnemar's test p-value is 0.03031, which suggests a significant difference between the number of false positives and false negatives. The model's sensitivity is 60.27%, and specificity is 75.34%. The positive predictive value (PPV) is 70.97%, and the negative predictive value (NPV) is 65.48%. The prevalence of attrition in the test set is 50%.
+
+Overall, the Naive Bayes model performs moderately well in predicting attrition based on the given dataset. The up-sampling technique has balanced the dataset, but the sensitivity of the model is still relatively low, indicating that there is room for improvement in the model's performance.
+
+# logistic regression model
+```{r}
+# Create a logistic regression model
+model2 <- naiveBayes(Attrition ~ Age + Department + MonthlyIncome + JobRole + JobSatisfaction, data = train_set, laplace=1)
+
+# Make predictions on the test data and add results to a new dataframe
+attritionprediction <- data.frame(ID = No_Attrition$ID, 
+                          Pred_attrition = predict(model2, newdata = No_Attrition))
+
+# Print first few rows of the predictions dataframe
+head(attritionprediction)
+```
+The output of the attritionprediction dataframe provides a glimpse of the predictions made by the Naive Bayes model on the No_Attrition dataset. The first few rows indicate that the model predicts a mix of attrition (1) and no attrition (0) cases for the given dataset. This information can be further analyzed to identify patterns or factors that may contribute to employee attrition.
+
+It is essential to keep in mind that the performance of the Naive Bayes model should be evaluated using appropriate metrics, such as accuracy, sensitivity, and specificity, on a separate test dataset to ensure the model's generalizability. The predictions made on the No_Attrition dataset can then be used with more confidence in understanding the factors influencing attrition and in decision-making processes related to employee retention strategies.
+
+# To predict the MonthlyIncome
+```{r}
+##We will now find the MSRE with a linear Regression
+numMSPEs = 100
+MSPEHolderModel1 = numeric(numMSPEs)
+MSPEHolderModel2 = numeric(numMSPEs)
+for (i in 1:numMSPEs)
+{
+  TrainObs = sample(seq(1,dim(talent_data)[1]),round(.75*dim(talent_data)[1]),replace = FALSE)
+  CaseTrain = talent_data[TrainObs,]
+  CaseTrain
+  CaseTest = talent_data[-TrainObs,]
+  CaseTest
+  Model1_fit = lm(MonthlyIncome ~ DailyRate+HourlyRate+JobInvolvement+JobLevel+MonthlyRate+ 
+                    OverTime+PercentSalaryHike+YearsAtCompany+YearsInCurrentRole+
+                    YearsSinceLastPromotion+YearsWithCurrManager, data = CaseTrain)
+  Model1_Preds = predict(Model1_fit, newdata = CaseTest)
+
+  #MSPE Model 1
+  MSPE = mean((CaseTest$MonthlyIncome - Model1_Preds)^2)
+  MSPE
+  MSPEHolderModel1[i] = MSPE
+
+  #Model 2
+  Model2_fit = lm(MonthlyIncome ~DailyRate+HourlyRate+JobInvolvement+JobLevel+MonthlyRate+ 
+                    OverTime+PercentSalaryHike+YearsAtCompany+YearsInCurrentRole+
+                    YearsSinceLastPromotion+YearsWithCurrManager, data = CaseTrain)
+  Model2_Preds = predict(Model2_fit,newdata = CaseTest)
+  MSPE = mean((CaseTest$MonthlyIncome - Model2_Preds)^2)
+  MSPE
+  MSPEHolderModel2[i] = MSPE
+
+}
+mean(MSPEHolderModel1)
+mean(MSPEHolderModel2)
+
+# RMSE Model 1
+RMSE_Model1 <- sqrt(mean((CaseTest$MonthlyIncome - Model1_Preds)^2))
+RMSE_Model1
+
+# RMSE Model 2
+RMSE_Model2 <- sqrt(mean((CaseTest$MonthlyIncome - Model2_Preds)^2))
+RMSE_Model2
+
+
+#Now we can run out model on the Test set for prediction
+
+Pred_NoSalary <- data.frame(ID = No_MonthlyIncome$ID, 
+                          Pred_MonthlyIncome=predict(Model2_fit, newdata = No_MonthlyIncome))
+
+# Print first few rows of the predictions dataframe
+view(Pred_NoSalary)
+```
+Here, two linear regression models are fitted on the talent_data dataset to predict the MonthlyIncome. Both models have the same set of predictor variables. The primary purpose of the code is to calculate the Mean Squared Prediction Error (MSPE) and Root Mean Squared Error (RMSE) for each model. The code runs 100 iterations, and in each iteration, the dataset is split into training (75%) and testing (25%) subsets.
+
+After 100 iterations, the mean MSPE for both models is approximately 2,052,293. Since both models have the same predictors, the mean MSPE values are the same. The RMSE for both Model 1 and Model 2 is approximately 1,381.67, which, again, is expected given the identical predictors in both models.
+
+Subsequently, the second model (Model 2) is used to predict the MonthlyIncome for the No_MonthlyIncome dataset, and the predictions are stored in the Pred_NoSalary dataframe. It is essential to note that Model 1 and Model 2 are the same, so using either of the models will yield the same results. The first few rows of the Pred_NoSalary dataframe can be viewed to observe the predictions for the MonthlyIncome.
+
+# ROC Analysis
+
+```{r}
+# Load required libraries
+library(caret)
+library(pROC)
+
+# Encode categorical variables using one-hot encoding
+talent_data_dummy <- dummyVars(~ Age + Department + MonthlyIncome + JobRole + JobSatisfaction, data = talent_data.up)
+talent_data_encoded <- data.frame(predict(talent_data_dummy, newdata = talent_data.up))
+talent_data_encoded$Attrition <- talent_data.up$Attrition
+
+# Split the dataset into training and testing sets
+set.seed(42)
+trainIndex <- createDataPartition(talent_data_encoded$Attrition, p = 0.8, list = FALSE, times = 1)
+train_set <- talent_data_encoded[trainIndex,]
+test_set <- talent_data_encoded[-trainIndex,]
+
+# Create a logistic regression model
+model <- glm(Attrition ~ ., data = train_set, family = "binomial")
+
+# Make predictions
+predictions <- predict(model, test_set, type = "response")
+predicted_classes <- ifelse(predictions > 0.5, 1, 0)
+
+# Evaluate model performance
+cm <- confusionMatrix(factor(predicted_classes), factor(test_set$Attrition))
+print(cm)
+
+# Calculate the ROC curve and AUC
+roc_obj <- roc(test_set$Attrition, predictions)
+
+# Print AUC
+cat("AUC:", auc(roc_obj), "\n")
+
+# Plot the ROC curve
+plot(roc_obj, main = "ROC Curve")
+
+```
+
+In this analysis, the goal is to create a logistic regression model to predict attrition using the given dataset. After encoding categorical variables with one-hot encoding, the dataset is split into training and testing sets with 80% of the data for training and the remaining 20% for testing.
+
+The logistic regression model is fit using the training set, and predictions are made on the test set. The model's performance is evaluated using a confusion matrix, which shows the accuracy of the model to be 68.15%, with a 95% confidence interval of (62.47%, 73.46%). The No Information Rate (NIR) is 0.5, and the p-value indicates that the model's accuracy is significantly better than the NIR. The kappa statistic, which measures the agreement between predictions and true values, is 0.363.
+
+Mcnemar's test p-value is 0.4068, which does not indicate a significant difference between the number of false positives and false negatives. The model's sensitivity is 65.07%, and specificity is 71.23%. The positive predictive value (PPV) is 69.34%, and the negative predictive value (NPV) is 67.10%. The prevalence of attrition in the test set is 50%.
+
+The area under the ROC curve (AUC) is calculated, providing a value of 0.6815, which suggests that the model has a moderate predictive ability. The ROC curve plot visually represents the model's performance in terms of the true positive rate (sensitivity) and false positive rate (1 - specificity) for different classification thresholds. Overall, the logistic regression model performs moderately well in predicting attrition based on the given dataset.
+
+
+# lasso model
+```{r}
+# Convert character columns to factors
+talent_data[] <- lapply(talent_data, function(x) {
+  if (is.character(x)) as.factor(x) else x
+})
+
+# Remove columns with only one level
+talent_data <- talent_data %>% select_if(~ !is.factor(.) || nlevels(.) > 1)
+
+# Create a design matrix with dummy variables
+x <- model.matrix(Attrition ~ . - 1, data = talent_data)
+y <- as.matrix(talent_data$Attrition)
+
+# Perform Lasso regression
+lasso_model <- cv.glmnet(x, y, alpha = 1, family = "binomial")
+plot(lasso_model)
+coef(lasso_model, s = "lambda.min")
+
+
+```
+
+Based on the LASSO model we've just run, we can interpret the non-zero coefficients as the most important features for predicting attrition. Here is a summary of the important features and their coefficients:
+
+```{r}
+# Extract the coefficients at lambda.min
+lasso_coefs <- coef(lasso_model, s = "lambda.min")
+
+# Find the non-zero coefficients (excluding intercept)
+non_zero_indices <- which(lasso_coefs[-1, 1] != 0)
+
+# Extract the important features and their coefficients
+important_features <- lasso_coefs[non_zero_indices + 1, , drop = FALSE]
+
+# Display the important features and their coefficients
+print(important_features)
+
+
+```
+
+These are the features we should focus on in our predictive model for employee attrition. Keep in mind that some coefficients are positive, indicating a positive relationship with attrition, while others are negative, indicating a negative relationship.
